@@ -36,6 +36,7 @@ from globaldetect.neighbors.cli import neighbors
 from globaldetect.cap.cli import cap
 from globaldetect.http.cli import http
 from globaldetect.inventory.cli import catalog, system, switch, location, db
+from globaldetect.backup.cli import backup
 
 main.add_command(ip)
 main.add_command(bgp)
@@ -55,6 +56,9 @@ main.add_command(system)
 main.add_command(switch)
 main.add_command(location)
 main.add_command(db)
+
+# Config backup commands
+main.add_command(backup)
 
 # Agent and server commands (added dynamically)
 from globaldetect.inventory.agent import add_agent_commands

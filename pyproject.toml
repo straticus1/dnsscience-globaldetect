@@ -53,6 +53,14 @@ enterprise = [
 server = [
     "flask>=3.0.0",
 ]
+# Device backup features
+backup = [
+    "cryptography>=41.0.0",   # Credential vault encryption
+    "asyncssh>=2.14.0",       # Async SSH connections
+    "aiohttp>=3.9.0",         # Async HTTP for REST APIs
+    "ncclient>=0.6.15",       # NETCONF client
+    "pexpect>=4.8.0",         # Screen scraping/expect
+]
 
 [project.scripts]
 globaldetect = "globaldetect.cli:main"
