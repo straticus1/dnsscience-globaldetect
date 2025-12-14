@@ -10,7 +10,10 @@ from globaldetect.neighbors.core import (
     LLDPNeighbor,
     CDPListener,
     LLDPListener,
+    CombinedListener,
     discover_neighbors,
+    get_interfaces,
+    get_physical_interfaces,
 )
 
 __all__ = [
@@ -18,5 +21,8 @@ __all__ = [
     "LLDPNeighbor",
     "CDPListener",
     "LLDPListener",
+    "CombinedListener",
     "discover_neighbors",
+    "get_interfaces",
+    "get_physical_interfaces",
 ]

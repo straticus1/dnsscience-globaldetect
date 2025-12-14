@@ -570,49 +570,288 @@ class CombinedListener:
 
 
 def get_interfaces() -> list[str]:
-    """Get list of available network interfaces."""
+    """Get list of available network interfaces.
+
+    Supports:
+    - Modern Linux (systemd/udev predictable naming): enp0s3, ens33, enx..., wlp2s0
+    - Traditional Linux: eth0, eth1, wlan0, bond0, br0
+    - macOS/Darwin: en0, en1, etc.
+    - FreeBSD/OpenBSD/NetBSD: em0, igb0, bge0, re0, xl0, fxp0, dc0, rl0, sis0
+    - Solaris/illumos: e1000g0, ixgbe0, nxge0, bge0
+    """
     import os
     import platform
+    import subprocess
+    import re
+
     interfaces = []
+    system = platform.system().lower()
+
     try:
-        system = platform.system().lower()
-        # Linux
+        # Method 1: Linux sysfs (most reliable on Linux)
         if os.path.exists("/sys/class/net"):
             interfaces = os.listdir("/sys/class/net")
-        # macOS - use networksetup or ifconfig
-        elif system == "darwin":
-            import subprocess
-            # Try ifconfig -l first (use full path for reliability)
+
+        # Method 2: BSD/macOS ifconfig -l
+        if not interfaces and system in ("darwin", "freebsd", "openbsd", "netbsd", "dragonfly"):
             for ifconfig_path in ["/sbin/ifconfig", "/usr/sbin/ifconfig", "ifconfig"]:
                 try:
                     result = subprocess.run([ifconfig_path, "-l"], capture_output=True, text=True)
                     if result.returncode == 0 and result.stdout.strip():
                         interfaces = result.stdout.strip().split()
                         break
-                except FileNotFoundError:
+                except (FileNotFoundError, PermissionError):
                     continue
-            # Alternative: parse ifconfig output
-            if not interfaces:
-                for ifconfig_path in ["/sbin/ifconfig", "/usr/sbin/ifconfig", "ifconfig"]:
-                    try:
-                        result = subprocess.run([ifconfig_path], capture_output=True, text=True)
-                        if result.returncode == 0:
-                            import re
-                            interfaces = re.findall(r'^(\w+):', result.stdout, re.MULTILINE)
-                            break
-                    except FileNotFoundError:
-                        continue
-        # Generic fallback
+
+        # Method 3: Parse ifconfig output (BSD/macOS/older systems)
         if not interfaces:
-            import subprocess
-            result = subprocess.run(["ip", "link", "show"], capture_output=True, text=True)
-            if result.returncode == 0:
-                import re
-                interfaces = re.findall(r'^\d+:\s+(\w+):', result.stdout, re.MULTILINE)
+            for ifconfig_path in ["/sbin/ifconfig", "/usr/sbin/ifconfig", "ifconfig"]:
+                try:
+                    result = subprocess.run([ifconfig_path, "-a"], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        # Match interface names at start of line (name: or name<space>)
+                        interfaces = re.findall(r'^([a-zA-Z][a-zA-Z0-9_-]*)(?::|:\s|\s)', result.stdout, re.MULTILINE)
+                        if interfaces:
+                            break
+                except (FileNotFoundError, PermissionError):
+                    continue
+
+        # Method 4: Linux ip command (modern Linux)
+        if not interfaces:
+            try:
+                result = subprocess.run(["ip", "-o", "link", "show"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    # Format: "1: lo: <LOOPBACK..."
+                    interfaces = re.findall(r'^\d+:\s+([a-zA-Z][a-zA-Z0-9_@-]*)(?:@\S+)?:', result.stdout, re.MULTILINE)
+            except (FileNotFoundError, PermissionError):
+                pass
+
+        # Method 5: Solaris/illumos dladm
+        if not interfaces and system == "sunos":
+            try:
+                result = subprocess.run(["dladm", "show-link", "-p", "-o", "link"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    interfaces = [line.strip() for line in result.stdout.strip().split('\n') if line.strip()]
+            except (FileNotFoundError, PermissionError):
+                pass
+
+        # Method 6: netstat -i fallback (very old systems)
+        if not interfaces:
+            try:
+                result = subprocess.run(["netstat", "-i"], capture_output=True, text=True)
+                if result.returncode == 0:
+                    lines = result.stdout.strip().split('\n')
+                    # Skip header lines
+                    for line in lines[2:]:
+                        parts = line.split()
+                        if parts and re.match(r'^[a-zA-Z]', parts[0]):
+                            iface = parts[0].rstrip('*')
+                            if iface not in interfaces:
+                                interfaces.append(iface)
+            except (FileNotFoundError, PermissionError):
+                pass
+
     except Exception:
         pass
-    # Filter out loopback and pseudo interfaces
-    return [iface for iface in interfaces if iface not in ("lo", "lo0") and not iface.startswith(("utun", "awdl", "llw", "bridge", "gif", "stf", "ap"))]
+
+    # Define interface patterns to exclude (virtual/pseudo interfaces)
+    # These are typically not useful for CDP/LLDP discovery
+    exclude_exact = {
+        # Loopback
+        "lo", "lo0",
+        # Linux virtual
+        "sit0", "ip6tnl0", "gre0", "tunl0", "ip6gre0",
+    }
+
+    exclude_prefixes = (
+        # macOS virtual/system interfaces
+        "utun",      # User tunnels (VPN)
+        "awdl",      # Apple Wireless Direct Link
+        "llw",       # Low Latency WLAN
+        "bridge",    # Bridge interfaces (usually virtual)
+        "gif",       # Generic tunnel
+        "stf",       # 6to4 tunnel
+        "ap",        # Access point
+        "p2p",       # Point-to-point
+        "ipsec",     # IPsec tunnels
+        "ppp",       # PPP interfaces (unless physical)
+
+        # Linux virtual interfaces
+        "virbr",     # libvirt bridges
+        "veth",      # Virtual ethernet (containers)
+        "docker",    # Docker bridges
+        "br-",       # Docker/container bridges
+        "vnet",      # KVM/QEMU virtual NICs
+        "tap",       # TAP devices
+        "tun",       # TUN devices
+        "dummy",     # Dummy interfaces
+        "vboxnet",   # VirtualBox host-only
+        "vmnet",     # VMware virtual networks
+
+        # BSD virtual
+        "pflog",     # PF logging
+        "pfsync",    # PF sync
+        "enc",       # IPsec encapsulation
+        "faith",     # IPv6-to-IPv4 translation
+
+        # VLAN sub-interfaces (keep parent, exclude sub)
+        # These have format like eth0.100, but we want eth0
+    )
+
+    # Filter interfaces
+    filtered = []
+    for iface in interfaces:
+        # Strip any trailing characters like '*' from netstat
+        iface = iface.rstrip('*')
+
+        # Skip exact matches
+        if iface in exclude_exact:
+            continue
+
+        # Skip prefix matches
+        if any(iface.startswith(prefix) for prefix in exclude_prefixes):
+            continue
+
+        # Skip VLAN sub-interfaces (e.g., eth0.100) - keep the parent
+        if '.' in iface and iface.split('.')[0] in interfaces:
+            continue
+
+        # Skip interfaces that are clearly aliases (e.g., eth0:1)
+        if ':' in iface:
+            continue
+
+        filtered.append(iface)
+
+    # Remove duplicates while preserving order
+    seen = set()
+    result = []
+    for iface in filtered:
+        if iface not in seen:
+            seen.add(iface)
+            result.append(iface)
+
+    return result
+
+
+def get_physical_interfaces() -> list[str]:
+    """Get list of physical network interfaces, excluding virtual ones.
+
+    This is more aggressive filtering for interfaces likely to have
+    physical neighbors (switches, routers) that speak CDP/LLDP.
+    """
+    import re
+    all_interfaces = get_interfaces()
+
+    # Patterns that indicate physical interfaces
+    physical_patterns = [
+        # Linux traditional
+        r'^eth\d+$',
+        r'^em\d+$',
+
+        # Linux predictable naming (systemd/udev)
+        r'^en[ops]\d+',      # enp0s3, ens33, eno1
+        r'^enx[0-9a-f]+$',   # enx + MAC address
+
+        # Wireless (may have LLDP on enterprise APs)
+        r'^wl',              # wlan0, wlp2s0
+
+        # macOS
+        r'^en\d+$',
+
+        # FreeBSD Intel drivers
+        r'^em\d+$',          # Intel PRO/1000
+        r'^igb\d+$',         # Intel I350/I210
+        r'^ix\d+$',          # Intel 10GbE
+        r'^ixl\d+$',         # Intel XL710
+        r'^ixv\d+$',         # Intel 10GbE VF
+
+        # FreeBSD Broadcom
+        r'^bge\d+$',         # Broadcom BCM57xx
+        r'^bce\d+$',         # Broadcom BCM5706/5708
+        r'^bnxt\d+$',        # Broadcom NetXtreme-C/E
+
+        # FreeBSD Realtek
+        r'^re\d+$',          # Realtek 8139C+/8169
+        r'^rl\d+$',          # Realtek 8129/8139
+
+        # FreeBSD other common drivers
+        r'^xl\d+$',          # 3Com 3c90x
+        r'^fxp\d+$',         # Intel EtherExpress PRO/100
+        r'^dc\d+$',          # DEC/Intel 21143
+        r'^sis\d+$',         # SiS 900/7016
+        r'^sk\d+$',          # SysKonnect/Marvell
+        r'^msk\d+$',         # Marvell/SysKonnect Yukon II
+        r'^nfe\d+$',         # NVIDIA nForce
+        r'^age\d+$',         # Attansic/Atheros L1
+        r'^alc\d+$',         # Atheros AR8131/8132
+        r'^ale\d+$',         # Atheros AR8121/8113/8114
+        r'^jme\d+$',         # JMicron JMC250/260
+        r'^et\d+$',          # Agere ET1310
+        r'^ed\d+$',          # NE2000 and clones
+        r'^vr\d+$',          # VIA Rhine
+        r'^sf\d+$',          # Adaptec Starfire
+        r'^ste\d+$',         # Sundance ST201
+        r'^tl\d+$',          # Texas Instruments ThunderLAN
+        r'^tx\d+$',          # SMC EtherPower II
+        r'^wb\d+$',          # Winbond W89C840F
+        r'^vx\d+$',          # 3Com 3c59x
+        r'^pcn\d+$',         # AMD PCnet
+        r'^lge\d+$',         # Level 1 LXT1001
+        r'^nge\d+$',         # National DP83820/DP83821
+        r'^ti\d+$',          # Alteon Tigon I/II
+        r'^my\d+$',          # Myson MTD803/MTD891
+        r'^le\d+$',          # AMD LANCE
+        r'^hme\d+$',         # Sun HME
+        r'^gem\d+$',         # Sun GEM/ERI
+        r'^cas\d+$',         # Sun Cassini
+
+        # OpenBSD specific
+        r'^vio\d+$',         # VirtIO
+        r'^vmx\d+$',         # VMware VMXNET3
+        r'^axe\d+$',         # ASIX USB
+        r'^axen\d+$',        # ASIX USB 3.0
+        r'^urndis\d+$',      # USB RNDIS
+        r'^ure\d+$',         # Realtek USB
+        r'^smsc\d+$',        # SMSC LAN95xx USB
+
+        # NetBSD specific
+        r'^wm\d+$',          # Intel PRO/1000
+        r'^bnx\d+$',         # Broadcom BCM5706/5708
+
+        # Solaris/illumos
+        r'^e1000g\d+$',      # Intel PRO/1000
+        r'^ixgbe\d+$',       # Intel 10GbE
+        r'^nxge\d+$',        # Sun Neptune 10GbE
+        r'^bnxe\d+$',        # Broadcom NetXtreme II
+        r'^igb\d+$',         # Intel I350
+        r'^bge\d+$',         # Broadcom BCM57xx
+        r'^nge\d+$',         # National DP83820
+        r'^rge\d+$',         # Realtek 8169
+        r'^afe\d+$',         # ADMtek AN983
+        r'^dmfe\d+$',        # Davicom DM9102
+        r'^eri\d+$',         # Sun ERI
+        r'^ge\d+$',          # Sun GEM
+        r'^hme\d+$',         # Sun HME
+        r'^qfe\d+$',         # Sun Quad FastEthernet
+        r'^net\d+$',         # Generic network device
+
+        # Bonding/teaming (these aggregate physical interfaces)
+        r'^bond\d+$',
+        r'^team\d+$',
+
+        # Bridges that may have physical ports
+        r'^br\d+$',
+        r'^br-[a-zA-Z]',     # Named bridges (not docker hex ones)
+    ]
+
+    physical = []
+    for iface in all_interfaces:
+        for pattern in physical_patterns:
+            if re.match(pattern, iface):
+                physical.append(iface)
+                break
+
+    return physical if physical else all_interfaces
 
 
 def discover_neighbors(

@@ -16,6 +16,7 @@ from globaldetect.neighbors.core import (
     LLDPListener,
     CombinedListener,
     get_interfaces,
+    get_physical_interfaces,
     discover_neighbors,
 )
 
@@ -27,22 +28,64 @@ def neighbors():
 
 
 @neighbors.command()
-def interfaces():
+@click.option("--physical", "-p", is_flag=True, help="Show only physical interfaces")
+@click.option("--all", "-a", "show_all", is_flag=True, help="Show all interfaces including virtual")
+def interfaces(physical: bool, show_all: bool):
     """List available network interfaces.
+
+    By default shows interfaces suitable for CDP/LLDP discovery,
+    filtering out most virtual/pseudo interfaces.
+
+    Supports interface naming conventions for:
+    - Linux (eth0, enp0s3, ens33, wlan0, bond0)
+    - macOS/Darwin (en0, en1)
+    - FreeBSD (em0, igb0, bge0, re0, xl0)
+    - OpenBSD (em0, vio0, vmx0)
+    - NetBSD (wm0, bge0)
+    - Solaris/illumos (e1000g0, ixgbe0, nxge0)
 
     Examples:
         globaldetect neighbors interfaces
+        globaldetect neighbors interfaces --physical
+        globaldetect neighbors interfaces --all
     """
     console = Console()
-    ifaces = get_interfaces()
+
+    if physical:
+        ifaces = get_physical_interfaces()
+        title = "Physical Network Interfaces"
+    elif show_all:
+        # Get raw list without filtering
+        import os
+        import platform
+        import subprocess
+
+        ifaces = []
+        if os.path.exists("/sys/class/net"):
+            ifaces = os.listdir("/sys/class/net")
+        else:
+            for path in ["/sbin/ifconfig", "/usr/sbin/ifconfig", "ifconfig"]:
+                try:
+                    result = subprocess.run([path, "-l"], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        ifaces = result.stdout.strip().split()
+                        break
+                except (FileNotFoundError, PermissionError):
+                    continue
+        title = "All Network Interfaces (including virtual)"
+    else:
+        ifaces = get_interfaces()
+        title = "Available Network Interfaces"
 
     if not ifaces:
         console.print("[yellow]No network interfaces found[/yellow]")
         return
 
-    console.print("[cyan]Available Network Interfaces:[/cyan]\n")
+    console.print(f"[cyan]{title}:[/cyan]\n")
     for iface in sorted(ifaces):
         console.print(f"  {iface}")
+
+    console.print(f"\n[dim]Total: {len(ifaces)} interface(s)[/dim]")
 
 
 @neighbors.command()
