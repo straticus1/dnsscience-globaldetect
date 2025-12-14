@@ -38,6 +38,7 @@ from globaldetect.http.cli import http
 from globaldetect.inventory.cli import catalog, system, switch, location, db
 from globaldetect.backup.cli import backup
 from globaldetect.backup.secrets.cli import secrets
+from globaldetect.hibp.cli import hibp
 
 main.add_command(ip)
 main.add_command(bgp)
@@ -63,6 +64,9 @@ main.add_command(backup)
 
 # Secrets management commands
 main.add_command(secrets)
+
+# Have I Been Pwned integration
+main.add_command(hibp)
 
 # Agent and server commands (added dynamically)
 from globaldetect.inventory.agent import add_agent_commands
