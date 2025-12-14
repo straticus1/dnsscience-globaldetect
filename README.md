@@ -75,6 +75,57 @@ Detects: broadcast storms, ARP anomalies, STP issues, ICMP errors, TCP retransmi
 - **cloudflare** - Cloudflare DNS and Radar API
 - **dnsscience** - DNS Science.io threat intelligence
 
+### Network Inventory (`globaldetect catalog`, `system`, `switch`, `location`)
+
+Full network asset inventory and catalog system supporting SQLite (default) and PostgreSQL (enterprise).
+
+**Discovery (`globaldetect catalog`)**
+- **discover** - Scan subnets to discover and catalog systems
+- **self** - Discover and report local system information
+
+**System Management (`globaldetect system`)**
+- **add** - Add systems with full metadata (hostname, IP, type, location, etc.)
+- **list** - List systems with filtering (by type, status, switch, tags)
+- **show** - Show detailed system info including switch connectivity
+- **update** - Update system properties
+- **delete** - Remove systems from inventory
+- **search** - Search by hostname, IP, or notes
+
+**Switch Management (`globaldetect switch`)**
+- **list** - List network switches
+- **show** - Show switch details and connected systems
+- **add/delete** - Manage switch inventory
+
+**Location Management (`globaldetect location`)**
+- **list** - List datacenters and locations
+- **add** - Add datacenter/rack locations
+- **rack** - Show systems in a specific rack
+
+**Database (`globaldetect db`)**
+- **init** - Initialize database schema
+- **stats** - Show inventory statistics
+
+**Features:**
+- **Multi-interface support** - Track eth0, eth1, mgmt interfaces with DNS names
+- **Interface roles** - Primary, management, storage, backup, cluster, etc.
+- **DNS names per interface** - e.g., `eth0.example.com`, `mgmt.example.com`
+- **Physical location** - Country, state, city, datacenter, building, floor, rack, U position
+- **Switch connectivity** - Track which port each system is plugged into
+- **Lifecycle tracking** - Ordered, purchased, shipped, delivered, installed, active, decommissioned
+- **Shipping/tracking** - PO numbers, tracking numbers, carrier info
+- **Service tickets** - Install ticket, last service ticket, warranty expiration
+- **GeoIP enrichment** - Auto-populate country/city from IP
+- **Tags and custom fields** - Flexible metadata
+
+### Agent Mode (`globaldetect agent`)
+- **run** - Run agent daemon to report system inventory to central server
+- **info** - Show what would be reported
+- **config** - Generate example configuration
+
+### Inventory Server (`globaldetect server`)
+- **run** - Start REST API server for agent check-ins
+- **generate-key** - Generate API keys for agents
+
 ## Installation
 
 See [INSTALL.md](INSTALL.md) for detailed installation instructions.
@@ -166,6 +217,54 @@ globaldetect http request https://api.example.com -H "Authorization: Bearer toke
 globaldetect http validate https://api.example.com/health --status 200
 globaldetect http bench https://api.example.com -n 100 -c 10
 globaldetect http headers https://www.example.com
+
+# Network Inventory - Discovery
+globaldetect catalog discover 192.168.1.0/24           # Scan subnet
+globaldetect catalog discover 192.168.1.0/24 --save    # Scan and save to inventory
+globaldetect catalog discover 10.0.0.1 --type host     # Single host
+globaldetect catalog self --save                       # Discover and save this system
+
+# Network Inventory - System Management
+globaldetect system list                               # List all systems
+globaldetect system list --type server --status active # Filter by type/status
+globaldetect system list --switch core-sw01           # Systems on a switch
+globaldetect system show webserver01                  # Show system details
+globaldetect system show webserver01 --switch         # Include switch connectivity
+globaldetect system show webserver01 --network        # Show all interfaces
+globaldetect system add --hostname db01 --ip 10.0.0.50 --type server \
+    --datacenter DC1 --rack A15 --rack-unit 20
+globaldetect system update db01 --status maintenance --note "Disk replacement"
+globaldetect system search "web"                      # Search by hostname/IP/notes
+
+# Network Inventory - Switch Management
+globaldetect switch list
+globaldetect switch show core-sw01 --systems          # Show connected systems
+globaldetect switch add --hostname core-sw01 --ip 10.0.0.1 --vendor Cisco \
+    --model "Nexus 9000" --ports 48 --datacenter DC1 --rack A01
+
+# Network Inventory - Location Management
+globaldetect location list
+globaldetect location add --datacenter DC1 --rack A15 --city "New York" --country US
+globaldetect location rack A15 --datacenter DC1       # Show systems in rack
+
+# Network Inventory - Database
+globaldetect db init                                  # Initialize database
+globaldetect db stats                                 # Show statistics
+
+# Use PostgreSQL instead of SQLite
+export GLOBALDETECT_DB="postgresql://user:pass@host/inventory"
+globaldetect db init
+
+# Agent Mode - Report system to central server
+globaldetect agent info                               # Show what would be reported
+globaldetect agent config --output /etc/globaldetect/agent.conf
+globaldetect agent run --server https://inventory.example.com --api-key KEY
+globaldetect agent run --config /etc/globaldetect/agent.conf
+
+# Inventory Server - Central API
+globaldetect server run                               # Start on port 8080
+globaldetect server run --port 9000 --db postgresql://localhost/inventory
+globaldetect server generate-key                      # Generate agent API key
 ```
 
 ## Requirements

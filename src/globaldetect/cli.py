@@ -35,6 +35,7 @@ from globaldetect.darkweb.cli import darkweb
 from globaldetect.neighbors.cli import neighbors
 from globaldetect.cap.cli import cap
 from globaldetect.http.cli import http
+from globaldetect.inventory.cli import catalog, system, switch, location, db
 
 main.add_command(ip)
 main.add_command(bgp)
@@ -47,6 +48,19 @@ main.add_command(darkweb)
 main.add_command(neighbors)
 main.add_command(cap)
 main.add_command(http)
+
+# Inventory commands
+main.add_command(catalog)
+main.add_command(system)
+main.add_command(switch)
+main.add_command(location)
+main.add_command(db)
+
+# Agent and server commands (added dynamically)
+from globaldetect.inventory.agent import add_agent_commands
+from globaldetect.inventory.server import add_server_commands
+add_agent_commands(main)
+add_server_commands(main)
 
 
 if __name__ == "__main__":
