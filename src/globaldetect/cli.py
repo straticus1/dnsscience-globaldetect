@@ -37,6 +37,7 @@ from globaldetect.cap.cli import cap
 from globaldetect.http.cli import http
 from globaldetect.inventory.cli import catalog, system, switch, location, db
 from globaldetect.backup.cli import backup
+from globaldetect.backup.secrets.cli import secrets
 
 main.add_command(ip)
 main.add_command(bgp)
@@ -59,6 +60,9 @@ main.add_command(db)
 
 # Config backup commands
 main.add_command(backup)
+
+# Secrets management commands
+main.add_command(secrets)
 
 # Agent and server commands (added dynamically)
 from globaldetect.inventory.agent import add_agent_commands
