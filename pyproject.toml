@@ -44,6 +44,15 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
 ]
+# Enterprise features: encryption, PostgreSQL
+enterprise = [
+    "cryptography>=41.0.0",
+    "psycopg2-binary>=2.9.0",
+]
+# Server mode
+server = [
+    "flask>=3.0.0",
+]
 
 [project.scripts]
 globaldetect = "globaldetect.cli:main"
